@@ -68,7 +68,7 @@ where it should, measure your own zones with [edge-capture.py](edge-capture.py):
    ./install/gtouchpad.sh install
    ```
 
-Don't edit `~/.local/bin/touchpad-edge-gestures.py` directly: the next install replaces it.
+Don't edit the installed copy in `~/.local/lib/touchpad-edge-gestures/` directly: the next install replaces it.
 
 ---
 

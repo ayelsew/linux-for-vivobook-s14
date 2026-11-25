@@ -13,9 +13,13 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOUCHPAD_NAME="ASCP1200:00 093A:3016 Touchpad"
 
 BIN_DIR="$HOME/.local/bin"
+LIB_DIR="$HOME/.local/lib/$NAME"
 UNIT_DIR="$HOME/.config/systemd/user"
 RULE_DIR="/etc/udev/rules.d"
 CONF="$HOME/.config/gtouchpad.conf"
+REPO_URL="https://github.com/ayelsew/linux-for-vivobook-s14"
+# One file per desktop: desktops/<name>_ctl.py (contract in desktops/README.md)
+DESKTOPS_SRC="$SRC_DIR/desktops"
 
 PY="$NAME.py"
 UNIT="$NAME.service"
@@ -42,7 +46,7 @@ Usage:
 
 It installs:
   ~/.local/bin/gtouchpad                              this command
-  ~/.local/bin/touchpad-edge-gestures.py              the daemon
+  ~/.local/lib/touchpad-edge-gestures/                the daemon and desktops/*_ctl.py
   ~/.config/systemd/user/touchpad-edge-gestures.service
   /etc/udev/rules.d/70-touchpad-edge-gestures.rules   read access to the touchpad only (sudo)
   ~/.config/gtouchpad.conf                            your settings (corner program)
@@ -64,6 +68,31 @@ reload_udev() {
     sudo udevadm control --reload-rules
     sudo udevadm trigger --action=change --subsystem-match=input
     sudo udevadm settle --timeout=10 || true
+}
+
+# --- desktop integrations (desktops/*_ctl.py) -------------------------------
+
+ctl_desktop()  { sed -n 's/^DESKTOP = "\(.*\)"$/\1/p' "$1"; }
+ctl_requires() { sed -n 's/^REQUIRES = \[\(.*\)\]$/\1/p' "$1" | tr -d '",'; }
+
+# Prints the *_ctl.py file whose DESKTOP is in XDG_CURRENT_DESKTOP, or nothing.
+find_desktop_ctl() {
+    local f d parts
+    IFS=':' read -ra parts <<<"${XDG_CURRENT_DESKTOP:-}"
+    for f in "$DESKTOPS_SRC"/*_ctl.py; do
+        [[ -f "$f" ]] || continue
+        for d in "${parts[@]}"; do
+            [[ -n "$d" && "${d^^}" == "$(ctl_desktop "$f" | tr '[:lower:]' '[:upper:]')" ]] && { echo "$f"; return 0; }
+        done
+    done
+}
+
+# Prints the *_ctl.py file with FALLBACK = True.
+find_fallback_ctl() {
+    local f
+    for f in "$DESKTOPS_SRC"/*_ctl.py; do
+        grep -q '^FALLBACK = True' "$f" 2>/dev/null && { echo "$f"; return 0; }
+    done
 }
 
 require_installed() {
@@ -179,6 +208,7 @@ cmd_install() {
     for f in "$PY" "$UNIT" "$RULE"; do
         [[ -f "$SRC_DIR/$f" ]] || die "Missing $SRC_DIR/$f. Run install from the repo's install/ folder."
     done
+    compgen -G "$DESKTOPS_SRC/*_ctl.py" >/dev/null || die "Missing $DESKTOPS_SRC/*_ctl.py"
     for c in python3 systemctl udevadm sudo; do
         command -v "$c" >/dev/null || die "Command not found: $c"
     done
@@ -189,17 +219,34 @@ cmd_install() {
     tp="$(find_touchpad)" || die "Touchpad \"$TOUCHPAD_NAME\" not found. Is this an S5406SA?"
     ok "Touchpad found: $tp"
 
+    # Desktop: the daemon uses each desktop's own way to change volume/brightness/media.
+    local ctl
+    ctl="$(find_desktop_ctl)"
+    if [[ -n "$ctl" ]]; then
+        ok "Desktop: $(ctl_desktop "$ctl") (supported, desktops/${ctl##*/})"
+    else
+        ctl="$(find_fallback_ctl)"
+        [[ -n "$ctl" ]] || die "No desktop integration with FALLBACK = True in $DESKTOPS_SRC"
+        warn "Desktop \"${XDG_CURRENT_DESKTOP:-unknown}\" is not supported yet. The gestures will use the"
+        warn "$(ctl_desktop "$ctl") commands ($(ctl_requires "$ctl")): they may work without the on-screen popup."
+        warn "Help add it (see install/desktops/README.md): open a PR at $REPO_URL"
+    fi
     # Commands the daemon calls for its actions (missing = that gesture does nothing).
-    for c in wpctl playerctl busctl; do
+    for c in $(ctl_requires "$ctl"); do
         command -v "$c" >/dev/null || warn "$c not installed: the gesture that uses it will not work"
     done
 
     # User files
     info "Installing the daemon, the user service and the $CMD command"
-    install -Dm755 "$SRC_DIR/$PY"   "$BIN_DIR/$PY"
+    install -Dm755 "$SRC_DIR/$PY"   "$LIB_DIR/$PY"
+    rm -f "$LIB_DIR"/desktops/*_ctl.py   # so integrations removed from the repo don't stay behind
+    install -d "$LIB_DIR/desktops"
+    install -m644 "$DESKTOPS_SRC"/*_ctl.py "$LIB_DIR/desktops/"
     install -Dm644 "$SRC_DIR/$UNIT" "$UNIT_DIR/$UNIT"
     install -Dm755 "$SRC_DIR/gtouchpad.sh" "$BIN_DIR/$CMD"
-    ok "$BIN_DIR/$PY"
+    rm -f "$BIN_DIR/$PY"                 # old location (before desktops/ existed)
+    ok "$LIB_DIR/$PY"
+    ok "$LIB_DIR/desktops/ ($(cd "$LIB_DIR/desktops" && echo *_ctl.py))"
     ok "$UNIT_DIR/$UNIT"
     ok "$BIN_DIR/$CMD"
     case ":$PATH:" in
@@ -257,8 +304,9 @@ cmd_uninstall() {
     info "Stopping and disabling the service"
     systemctl --user disable --now "$UNIT" >/dev/null 2>&1 || true
     rm -f "$UNIT_DIR/$UNIT" "$BIN_DIR/$PY" "$CONF"
+    rm -rf "$LIB_DIR"
     systemctl --user daemon-reload
-    ok "Removed $UNIT_DIR/$UNIT, $BIN_DIR/$PY and $CONF"
+    ok "Removed $UNIT_DIR/$UNIT, $LIB_DIR and $CONF"
 
     if [[ -e "$RULE_DIR/$RULE" ]]; then
         info "Removing the udev rule (needs sudo)"

@@ -59,7 +59,9 @@ TOUCHPAD_NAME = "ASCP1200:00 093A:3016 Touchpad"
 
 import argparse
 import fcntl
+import functools
 import glob
+import importlib.util
 import math
 import os
 import queue
@@ -68,6 +70,7 @@ import struct
 import subprocess
 import threading
 import time
+import types
 
 # Valor escolhido com "gtouchpad corner" (~/.config/gtouchpad.conf, passado pelo serviço).
 CORNER_PROGRAM = os.environ.get("CORNER_PROGRAM", CORNER_PROGRAM)
@@ -141,31 +144,55 @@ def run(cmd, detach=False):
         log(f"   erro ao executar {cmd[0]}: {e}")
 
 
-def volume(up):
-    run(["wpctl", "set-volume", "-l", VOLUME_MAX, "@DEFAULT_AUDIO_SINK@", VOLUME_STEP + ("+" if up else "-")])
+# ------------------------------------------------------------------ ambiente gráfico (DE)
+# O que cada gesto FAZ fica em desktops/<nome>_ctl.py, um arquivo por DE (contrato em desktops/README.md).
+# Aqui só se escolhe o arquivo certo pelo XDG_CURRENT_DESKTOP.
+
+REPO_URL = "https://github.com/ayelsew/linux-for-vivobook-s14"
+DESKTOPS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "desktops")
+BACKEND = None      # módulo *_ctl.py escolhido
+CTX = None          # o que o módulo recebe: run, log e os limites de volume/brilho
 
 
-def brightness(up):
-    bl = sorted(glob.glob("/sys/class/backlight/*"))
-    if not bl:
-        log("   sem /sys/class/backlight")
-        return
-    bl = bl[0]
-    try:
-        cur = int(open(bl + "/brightness").read())
-        mx = int(open(bl + "/max_brightness").read())
-    except (OSError, ValueError) as e:
-        log(f"   erro lendo o brilho: {e}")
-        return
-    step = max(1, round(mx * BRIGHTNESS_STEP_PCT / 100))
-    new = min(mx, max(math.ceil(mx * BRIGHTNESS_MIN_PCT / 100), cur + (step if up else -step)))
-    if new != cur:  # logind deixa o usuário da sessão ativa mudar o brilho sem root
-        run(["busctl", "call", "org.freedesktop.login1", "/org/freedesktop/login1/session/auto",
-             "org.freedesktop.login1.Session", "SetBrightness", "ssu", "backlight", os.path.basename(bl), str(new)])
+def load_desktops():
+    mods = []
+    for path in sorted(glob.glob(os.path.join(DESKTOPS_DIR, "*_ctl.py"))):
+        name = os.path.basename(path)[:-3]
+        try:  # carrega pelo caminho: python3 -I não procura módulos na pasta do script
+            spec = importlib.util.spec_from_file_location(name, path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception as e:
+            log(f"erro carregando {name}.py: {e}")
+            continue
+        missing = [a for a in ("DESKTOP", "volume", "brightness", "media") if not hasattr(mod, a)]
+        if missing:
+            log(f"{name}.py ignorado: falta {', '.join(missing)}")
+            continue
+        mods.append(mod)
+    return mods
 
 
-def media(nxt):
-    run(["playerctl", "next" if nxt else "previous"])
+def detect_desktop():
+    mods = load_desktops()
+    current = os.environ.get("XDG_CURRENT_DESKTOP", "")
+    names = [n.upper() for n in current.split(":")]
+    for mod in mods:
+        if mod.DESKTOP.upper() in names:
+            return mod.DESKTOP, mod
+    fallback = next((m for m in mods if getattr(m, "FALLBACK", False)), None)
+    if fallback is None:
+        raise SystemExit(f"nenhuma integração de ambiente gráfico em {DESKTOPS_DIR}")
+    log(f"ambiente gráfico '{current or 'desconhecido'}' sem suporte: usando {fallback.DESKTOP} como padrão "
+        f"(pode não mostrar aviso na tela). Contribua com um PR: {REPO_URL}")
+    return None, fallback
+
+
+def action(name):
+    """Ação do módulo do DE pronta para a fila: recebe só o argumento do gesto."""
+    fn = functools.partial(getattr(BACKEND, name), CTX)
+    fn.__name__ = name
+    return fn
 
 
 def corner(_=None):
@@ -234,11 +261,11 @@ class Gestures:
                 up = y < g["ay"]  # Y cresce para baixo
                 g["ay"] += -step if up else step
                 log(f"{'volume' if g['kind'] == 'left' else 'brilho'} {'+' if up else '−'}")
-                do(volume if g["kind"] == "left" else brightness, up)
+                do(action("volume" if g["kind"] == "left" else "brightness"), up)
         elif g["kind"] == "top":
             if abs(dx) >= SWIPE_DISTANCE * self.w:
                 log("mídia: " + ("próxima" if dx > 0 else "anterior"))
-                do(media, dx > 0)
+                do(action("media"), dx > 0)
                 g["done"] = True
         elif g["kind"] == "corner":
             if math.hypot(dx / self.h, dy / self.h) >= CORNER_DISTANCE:
@@ -309,11 +336,16 @@ def loop(dev):
 
 
 def main():
-    global ARGS
+    global ARGS, BACKEND, CTX
     ap = argparse.ArgumentParser(description="Gestos de borda do touchpad ASUS")
     ap.add_argument("--dry-run", action="store_true", help="só mostra os gestos, não executa nada")
     ap.add_argument("-v", "--verbose", action="store_true")
     ARGS = ap.parse_args()
+    desktop, BACKEND = detect_desktop()
+    if desktop:
+        log(f"ambiente gráfico: {desktop}")
+    CTX = types.SimpleNamespace(run=run, log=log, volume_step=VOLUME_STEP, volume_max=float(VOLUME_MAX),
+                                brightness_step_pct=BRIGHTNESS_STEP_PCT, brightness_min_pct=BRIGHTNESS_MIN_PCT)
     threading.Thread(target=action_worker, daemon=True).start()
 
     waited = False

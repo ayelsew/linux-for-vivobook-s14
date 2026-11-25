@@ -11,7 +11,7 @@ After=graphical-session.target pipewire.service wireplumber.service
 [Service]
 # CORNER_PROGRAM, set with "gtouchpad corner" ("-" = file is optional)
 EnvironmentFile=-%h/.config/gtouchpad.conf
-ExecStart=/usr/bin/python3 -I %h/.local/bin/touchpad-edge-gestures.py
+ExecStart=/usr/bin/python3 -I %h/.local/lib/touchpad-edge-gestures/touchpad-edge-gestures.py
 Restart=on-failure
 RestartSec=3
 
