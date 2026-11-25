@@ -1,0 +1,8 @@
+# /etc/udev/rules.d/70-touchpad-edge-gestures.rules
+# Author: @ayelsew
+# https://github.com/ayelsew/linux-for-vivobook-s14
+# Gives the user of the active session (logind "uaccess") read access to the ASUS touchpad ONLY
+# (ASCP1200, 093A:3016), so touchpad-edge-gestures.py can run without root. More restrictive than adding
+# the user to the "input" group (which would give read access to every keyboard). Must run before
+# 73-seat-late.rules (hence the "70").
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="ASCP1200:00 093A:3016 Touchpad", TAG+="uaccess"

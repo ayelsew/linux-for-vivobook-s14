@@ -1,0 +1,19 @@
+# ~/.config/systemd/user/touchpad-edge-gestures.service — USER service (no root).
+# Author: @ayelsew
+# https://github.com/ayelsew/linux-for-vivobook-s14
+# Installed and controlled by gtouchpad (gtouchpad.sh install, gtouchpad on/off/status).
+# Log: journalctl --user -u touchpad-edge-gestures -f
+[Unit]
+Description=Gestos de borda do touchpad ASUS (volume, brilho, mídia, canto)
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service wireplumber.service
+
+[Service]
+# CORNER_PROGRAM, set with "gtouchpad corner" ("-" = file is optional)
+EnvironmentFile=-%h/.config/gtouchpad.conf
+ExecStart=/usr/bin/python3 -I %h/.local/bin/touchpad-edge-gestures.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
