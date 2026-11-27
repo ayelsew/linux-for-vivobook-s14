@@ -11,11 +11,18 @@ Needs `easyeffects` and the LV2 version of the Linux Studio Plugins (`sudo pacma
 Without it EasyEffects shows the plugins but they do nothing.
 
 ```sh
-cp presets/*.json ~/.local/share/easyeffects/output/
-easyeffects -l S5406SA-Dolby-dynamic
+./install.sh                                   # speakers get S5406SA-Dolby-music-v2
+./install.sh --preset S5406SA-Dolby-dynamic-v2 # or pick another one
+./install.sh status
+./install.sh uninstall
 ```
 
-To load it only on the speakers: EasyEffects → Presets → Autoload, pick the device "Speaker" and the preset.
+It runs as your user, with no sudo. It copies the presets, autoloads the chosen one **on the speakers only**
+(headphones, Bluetooth and USB DACs stay flat) and starts EasyEffects at login in the background. You can change
+the speaker preset later in EasyEffects → Presets → Autoload.
+
+EasyEffects keeps its presets and settings per user, so **each account runs `install.sh` once**, logged in as
+itself.
 
 ## Presets
 
@@ -26,6 +33,8 @@ To load it only on the speakers: EasyEffects → Presets → Autoload, pick the 
 | `S5406SA-Dolby-music` | music | Same mid cut, strong high boost (+7 dB at 9 kHz, +5.5 dB at 13.9 kHz) |
 | `S5406SA-Dolby-game` | game | Less cut at 1–3 kHz, boost at 7 kHz |
 | `S5406SA-Dolby-voice` | voice | Mid cut plus −4 dB at 1.2 kHz, no high boost |
+| `S5406SA-Dolby-music-v2` | music | Music plus an EQ measured against Windows: −1.9 dB at 1 kHz, −1 dB at 3.2 kHz, +0.7 dB at 10 kHz. Within 0.5 dB of Windows Music (IEQ Off) |
+| `S5406SA-Dolby-dynamic-v2` | dynamic | Dynamic plus a gentle multiband leveler (ratio 1.7) in front and a matching EQ: moves with the music like Dolby Dynamic |
 
 `presets/raw/` keeps the pure first conversion, as it came out: Dolby's +6 dB boost, the
 compressor group gains (+1 dB lows, +2.5/+3 dB highs), no limiter oversampling and narrower EQ bells
