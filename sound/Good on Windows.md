@@ -51,17 +51,3 @@ same for both speakers. The values in the XML are most likely in 1/16 dB (Dolby'
 In short: a cut of the "boxy" mids around 300 Hz – 2 kHz (strongest at 1.3 kHz) and around 5 kHz, and a
 small boost at 9 kHz. The music profile boosts the highs much more.
 
-## Speaker protection
-
-- **Multiband compressor**: 4 band groups, so loud bass does not distort the speakers.
-- **Regulator**: per-band limits (`threshold_high` / `threshold_low`) on the bands from 328 Hz to 1031 Hz,
-  with speaker distortion protection on.
-
-## What we need on Linux
-
-| Windows | Linux equivalent |
-|---|---|
-| Speaker EQ (20 bands) | EasyEffects equalizer or PipeWire filter-chain (`bq_peaking`) |
-| Extra PEQ (music, voice) | Same, extra peaking filters |
-| Multiband compressor and regulator | EasyEffects multiband compressor and limiter |
-| Dialog enhancer, surround, leveler | Partial: EasyEffects autogain, crystalizer, stereo tools |
